@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  mimo-tts-legado:
+    build: .
+    container_name: mimo-tts-legado
+    restart: unless-stopped
+    ports:
+      - "9880:9880"
+    environment:
+      - MIMO_TTS_API_KEY=${MIMO_TTS_API_KEY}
+      - MIMO_TTS_API_BASE_URL=${MIMO_TTS_API_BASE_URL:-https://api.xiaomimimo.com/v1}
+      - MIMO_TTS_MODEL=${MIMO_TTS_MODEL:-mimo-v2.5-tts}
+      - MIMO_TTS_DEFAULT_VOICE=${MIMO_TTS_DEFAULT_VOICE:-晓晓}
+      - MIMO_TTS_DEFAULT_STYLE=${MIMO_TTS_DEFAULT_STYLE:-温柔，语速适中}
+      - MIMO_TTS_TIMEOUT=${MIMO_TTS_TIMEOUT:-60}
+      - MIMO_TTS_MAX_TEXT_LENGTH=${MIMO_TTS_MAX_TEXT_LENGTH:-5000}
+      - OUTPUT_AUDIO_FORMAT=${OUTPUT_AUDIO_FORMAT:-wav}
+      - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
+      - SERVER_PORT=${SERVER_PORT:-9880}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9880/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

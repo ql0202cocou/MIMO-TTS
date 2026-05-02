@@ -3,12 +3,16 @@
 from typing import Optional
 from pydantic import BaseModel, Field
 
+from app.config import VERSION, SPEED_DEFAULT, SPEED_MIN, SPEED_MAX
+
 
 class TTSRequest(BaseModel):
     """TTS request data model."""
 
     text: str = Field(..., description="要朗读的文本内容")
-    speed: Optional[int] = Field(default=30, ge=5, le=50, description="朗读速度，范围 5-50")
+    speed: Optional[int] = Field(
+        default=SPEED_DEFAULT, ge=SPEED_MIN, le=SPEED_MAX, description="朗读速度"
+    )
     voice: Optional[str] = Field(default=None, description="音色选择（晓晓/云阳/Chloe 等）")
     style: Optional[str] = Field(default=None, description="风格标签（如'温柔'、'开心'）")
 
@@ -26,11 +30,5 @@ class HealthResponse(BaseModel):
     """Health check response model."""
 
     status: str = Field(default="ok", description="服务状态")
-    version: str = Field(default="2.5.0", description="MIMO-TTS 版本")
+    version: str = Field(default=VERSION, description="MIMO-TTS 版本")
     api_configured: bool = Field(default=False, description="API Key 是否已配置")
-
-
-class ErrorResponse(BaseModel):
-    """Error response model."""
-
-    detail: str = Field(..., description="错误详情")

@@ -1,31 +1,60 @@
 """Configuration management for MIMO-TTS Legado Bridge."""
 
-import os
+from pydantic_settings import BaseSettings
+from pydantic import Field
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=False)
+
+VERSION = "2.5.0"
+
+# Speed range constants
+SPEED_MIN = 5
+SPEED_MAX = 50
+SPEED_DEFAULT = 30
+
+# Split thresholds
+MIN_SEGMENT_LENGTH = 50
+MIN_COMMA_SEGMENT_LENGTH = 20
+WAV_HEADER_SIZE = 44
+
+# Content type mapping
+CONTENT_TYPE_MAP = {
+    "wav": "audio/wav",
+    "mp3": "audio/mpeg",
+    "pcm16": "audio/L16",
+}
 
 
-class Settings:
+class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     # MIMO-TTS API configuration
-    MIMO_TTS_API_BASE_URL: str = os.getenv(
-        "MIMO_TTS_API_BASE_URL", "https://api.xiaomimimo.com/v1"
+    MIMO_TTS_API_BASE_URL: str = Field(
+        default="https://api.xiaomimimo.com/v1",
+        description="MIMO-TTS API 基础地址",
     )
-    MIMO_TTS_API_KEY: str = os.getenv("MIMO_TTS_API_KEY", "")
-    MIMO_TTS_MODEL: str = os.getenv("MIMO_TTS_MODEL", "mimo-v2.5-tts")
-    MIMO_TTS_DEFAULT_VOICE: str = os.getenv("MIMO_TTS_DEFAULT_VOICE", "晓晓")
-    MIMO_TTS_DEFAULT_STYLE: str = os.getenv("MIMO_TTS_DEFAULT_STYLE", "温柔，语速适中")
-    MIMO_TTS_TIMEOUT: int = int(os.getenv("MIMO_TTS_TIMEOUT", "60"))
-    MIMO_TTS_MAX_TEXT_LENGTH: int = int(os.getenv("MIMO_TTS_MAX_TEXT_LENGTH", "5000"))
+    MIMO_TTS_API_KEY: str = Field(default="", description="MIMO-TTS API Key")
+    MIMO_TTS_MODEL: str = Field(default="mimo-v2.5-tts", description="模型名称")
+    MIMO_TTS_DEFAULT_VOICE: str = Field(default="晓晓", description="默认音色")
+    MIMO_TTS_DEFAULT_STYLE: str = Field(default="温柔，语速适中", description="默认风格指令")
+    MIMO_TTS_TIMEOUT: int = Field(default=60, description="请求超时时间（秒）")
+    MIMO_TTS_MAX_TEXT_LENGTH: int = Field(default=5000, description="单次最大文本长度")
 
     # Output configuration
-    OUTPUT_AUDIO_FORMAT: str = os.getenv("OUTPUT_AUDIO_FORMAT", "wav")
+    OUTPUT_AUDIO_FORMAT: str = Field(default="wav", description="输出音频格式")
 
     # Server configuration
-    SERVER_HOST: str = os.getenv("SERVER_HOST", "0.0.0.0")
-    SERVER_PORT: int = int(os.getenv("SERVER_PORT", "9880"))
+    SERVER_HOST: str = Field(default="0.0.0.0", description="服务监听地址")
+    SERVER_PORT: int = Field(default=9880, description="服务监听端口")
+
+    # CORS configuration
+    CORS_ORIGINS: str = Field(default="*", description="CORS 允许的来源，逗号分隔")
+
+    # Log level
+    LOG_LEVEL: str = Field(default="INFO", description="日志级别")
+
+    model_config = {"env_prefix": "", "case_sensitive": False}
 
 
 settings = Settings()

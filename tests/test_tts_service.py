@@ -1,7 +1,6 @@
 """Tests for TTS service logic (no API calls)."""
 
 import io
-import struct
 import wave
 
 import pytest
@@ -84,27 +83,32 @@ class TestSplitText:
         assert segments[0] == text
 
     def test_long_text_splits_at_punctuation(self, service):
-        # Create text longer than 50 chars with punctuation
-        text = "这是一个测试句子。" * 20  # well over max_text_length
+        original_max = service.max_text_length
         service.max_text_length = 100
-        segments = service._split_text(text)
-        assert len(segments) > 1
-        for seg in segments:
-            assert len(seg) <= 100
+        try:
+            text = "这是一个测试句子。" * 20
+            segments = service._split_text(text)
+            assert len(segments) > 1
+            for seg in segments:
+                assert len(seg) <= 100
+        finally:
+            service.max_text_length = original_max
 
     def test_no_punctuation_force_split(self, service):
-        # Text with no punctuation at all
-        text = "a" * 200
+        original_max = service.max_text_length
         service.max_text_length = 100
-        segments = service._split_text(text)
-        assert len(segments) >= 2
-        for seg in segments:
-            assert len(seg) <= 100
+        try:
+            text = "a" * 200
+            segments = service._split_text(text)
+            assert len(segments) >= 2
+            for seg in segments:
+                assert len(seg) <= 100
+        finally:
+            service.max_text_length = original_max
 
     def test_empty_after_strip(self, service):
         text = "   "
         segments = service._split_text(text)
-        # Should return at least one segment
         assert len(segments) >= 1
 
 
@@ -115,11 +119,15 @@ class TestSplitByComma:
         assert len(segments) == 1
 
     def test_no_comma_force_split(self, service):
-        text = "a" * 200
+        original_max = service.max_text_length
         service.max_text_length = 100
-        segments = service._split_by_comma(text)
-        for seg in segments:
-            assert len(seg) <= 100
+        try:
+            text = "a" * 200
+            segments = service._split_by_comma(text)
+            for seg in segments:
+                assert len(seg) <= 100
+        finally:
+            service.max_text_length = original_max
 
 
 class TestConcatenateWav:
@@ -133,7 +141,6 @@ class TestConcatenateWav:
         wav2 = _make_wav_bytes(500)
         result = service._concatenate_wav([wav1, wav2])
 
-        # Verify result is valid WAV
         buf = io.BytesIO(result)
         with wave.open(buf, "rb") as w:
             assert w.getnframes() == 1500
@@ -150,3 +157,9 @@ class TestConcatenateWav:
             assert params.nchannels == 1
             assert params.sampwidth == 2
             assert params.framerate == 24000
+
+    def test_mismatched_params_raises(self, service):
+        wav1 = _make_wav_bytes(1000, sample_rate=24000)
+        wav2 = _make_wav_bytes(500, sample_rate=16000)
+        with pytest.raises(RuntimeError, match="different audio params"):
+            service._concatenate_wav([wav1, wav2])

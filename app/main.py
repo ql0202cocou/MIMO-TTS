@@ -38,6 +38,13 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("MIMO_TTS_API_KEY is configured.")
 
+    if settings.CORS_ORIGINS.strip() == "*":
+        logger.warning(
+            "CORS_ORIGINS is set to '*' (allow all). "
+            "This is INSECURE for production! "
+            "Please set specific origins in production environment."
+        )
+
     logger.info(f"Server listening on {settings.SERVER_HOST}:{settings.SERVER_PORT}")
     logger.info("=" * 60)
 

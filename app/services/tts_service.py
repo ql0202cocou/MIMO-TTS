@@ -1,10 +1,13 @@
-"""MIMO-TTS API call service using OpenAI SDK."""
+"""MIMO-TTS API call service using async OpenAI SDK."""
 
+import asyncio
 import base64
+import io
 import logging
+import wave
 from typing import Optional
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from app.config import settings
 
@@ -22,6 +25,12 @@ BUILTIN_VOICES = [
     {"name": "Milo", "voice_id": "Milo", "language": "英文", "gender": "男"},
     {"name": "Dean", "voice_id": "Dean", "language": "英文", "gender": "男"},
 ]
+
+VALID_VOICE_IDS = {v["voice_id"] for v in BUILTIN_VOICES}
+
+# Retry configuration
+MAX_RETRIES = 3
+RETRY_DELAY = 1.0
 
 
 def speed_to_hint(speed: int) -> str:
@@ -42,7 +51,7 @@ class TTSService:
     """MIMO-TTS API service for text-to-speech synthesis."""
 
     def __init__(self):
-        self.client = OpenAI(
+        self.client = AsyncOpenAI(
             api_key=settings.MIMO_TTS_API_KEY,
             base_url=settings.MIMO_TTS_API_BASE_URL,
             timeout=settings.MIMO_TTS_TIMEOUT,
@@ -53,7 +62,16 @@ class TTSService:
         self.max_text_length = settings.MIMO_TTS_MAX_TEXT_LENGTH
         self.output_format = settings.OUTPUT_AUDIO_FORMAT
 
-    def synthesize(
+    def validate_voice(self, voice: Optional[str]) -> str:
+        """校验音色参数，无效值回退到默认音色."""
+        if voice is None:
+            return self.default_voice
+        if voice not in VALID_VOICE_IDS:
+            logger.warning(f"Invalid voice '{voice}', falling back to default '{self.default_voice}'")
+            return self.default_voice
+        return voice
+
+    async def synthesize(
         self,
         text: str,
         voice: Optional[str] = None,
@@ -73,7 +91,7 @@ class TTSService:
         Returns:
             音频二进制数据
         """
-        voice = voice or self.default_voice
+        voice = self.validate_voice(voice)
         audio_format = audio_format or self.output_format
 
         # 构建风格指令
@@ -103,19 +121,33 @@ class TTSService:
             f"style={combined_style}, text_length={len(text)}"
         )
 
-        completion = self.client.chat.completions.create(
-            model=self.default_model,
-            messages=messages,
-            audio={"format": audio_format, "voice": voice},
-        )
+        # 带重试的 API 调用
+        last_exception = None
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                completion = await self.client.chat.completions.create(
+                    model=self.default_model,
+                    messages=messages,
+                    audio={"format": audio_format, "voice": voice},
+                )
 
-        message = completion.choices[0].message
-        audio_bytes = base64.b64decode(message.audio.data)
+                message = completion.choices[0].message
+                audio_bytes = base64.b64decode(message.audio.data)
 
-        logger.info(f"MIMO-TTS API response received, audio size: {len(audio_bytes)} bytes")
-        return audio_bytes
+                logger.info(f"MIMO-TTS API response received, audio size: {len(audio_bytes)} bytes")
+                return audio_bytes
+            except Exception as e:
+                last_exception = e
+                if attempt < MAX_RETRIES:
+                    wait = RETRY_DELAY * attempt
+                    logger.warning(f"API call failed (attempt {attempt}/{MAX_RETRIES}): {e}, retrying in {wait}s...")
+                    await asyncio.sleep(wait)
+                else:
+                    logger.error(f"API call failed after {MAX_RETRIES} attempts: {e}")
 
-    def synthesize_long_text(
+        raise last_exception
+
+    async def synthesize_long_text(
         self,
         text: str,
         voice: Optional[str] = None,
@@ -128,7 +160,7 @@ class TTSService:
         对于超过 max_text_length 的文本，按标点符号分段后分别合成并拼接。
         """
         if len(text) <= self.max_text_length:
-            return self.synthesize(text, voice, style_hint, speed, audio_format)
+            return await self.synthesize(text, voice, style_hint, speed, audio_format)
 
         # 分段处理
         segments = self._split_text(text)
@@ -137,29 +169,33 @@ class TTSService:
         audio_parts = []
         for i, segment in enumerate(segments):
             logger.info(f"Synthesizing segment {i + 1}/{len(segments)}, length: {len(segment)}")
-            audio_data = self.synthesize(segment, voice, style_hint, speed, audio_format)
+            audio_data = await self.synthesize(segment, voice, style_hint, speed, audio_format)
             audio_parts.append(audio_data)
 
         # 拼接音频
         return self._concatenate_wav(audio_parts)
 
     def _split_text(self, text: str) -> list[str]:
-        """按标点符号将长文本分段."""
-        # 分割标点符号
+        """按标点符号将长文本分段，带兜底截断."""
+        max_len = self.max_text_length
         delimiters = ["。", "！", "？", "；", "\n", ".", "!", "?", ";"]
         segments = []
         current_segment = ""
 
         for char in text:
             current_segment += char
+            # 在标点处切分（段落长度 >= 50 时）或强制截断（达到上限时）
             if char in delimiters and len(current_segment) >= 50:
+                segments.append(current_segment.strip())
+                current_segment = ""
+            elif len(current_segment) >= max_len:
+                # 兜底：无标点时强制截断
                 segments.append(current_segment.strip())
                 current_segment = ""
 
         # 处理剩余文本
         if current_segment.strip():
-            # 如果剩余文本仍然过长，按逗号继续分割
-            if len(current_segment) > self.max_text_length:
+            if len(current_segment) > max_len:
                 sub_segments = self._split_by_comma(current_segment)
                 segments.extend(sub_segments)
             else:
@@ -169,19 +205,25 @@ class TTSService:
         merged = []
         buffer = ""
         for seg in segments:
-            if len(buffer) + len(seg) <= self.max_text_length:
+            if len(buffer) + len(seg) <= max_len:
                 buffer += seg
             else:
                 if buffer:
                     merged.append(buffer)
-                buffer = seg
+                # 单段超过 max_len 时强制截断
+                if len(seg) > max_len:
+                    for i in range(0, len(seg), max_len):
+                        merged.append(seg[i:i + max_len])
+                else:
+                    buffer = seg
         if buffer:
             merged.append(buffer)
 
-        return merged if merged else [text[:self.max_text_length]]
+        return merged if merged else [text[:max_len]]
 
     def _split_by_comma(self, text: str) -> list[str]:
-        """按逗号分割文本."""
+        """按逗号分割文本，带兜底截断."""
+        max_len = self.max_text_length
         delimiters = ["，", ",", "、", "：", ":"]
         segments = []
         current = ""
@@ -189,6 +231,9 @@ class TTSService:
         for char in text:
             current += char
             if char in delimiters and len(current) >= 20:
+                segments.append(current.strip())
+                current = ""
+            elif len(current) >= max_len:
                 segments.append(current.strip())
                 current = ""
 
@@ -200,31 +245,39 @@ class TTSService:
     def _concatenate_wav(self, wav_parts: list[bytes]) -> bytes:
         """拼接多个 WAV 音频文件.
 
-        简单拼接：跳过除第一个外的 WAV 文件头，直接拼接音频数据。
+        使用 wave 标准库正确解析 WAV 头部，提取音频参数和数据后拼接。
         """
         if len(wav_parts) == 1:
             return wav_parts[0]
 
-        # WAV 文件头通常是 44 字节
-        header = wav_parts[0][:44]
-        data_parts = []
+        # 从第一个 WAV 文件读取音频参数
+        first_wav = io.BytesIO(wav_parts[0])
+        with wave.open(first_wav, "rb") as w:
+            params = w.getparams()
+            first_data = w.readframes(w.getnframes())
 
-        for part in wav_parts:
-            if len(part) > 44:
-                data_parts.append(part[44:])
-            else:
-                data_parts.append(part)
+        # 收集所有音频数据
+        all_data = [first_data]
+        for part in wav_parts[1:]:
+            part_wav = io.BytesIO(part)
+            try:
+                with wave.open(part_wav, "rb") as w:
+                    all_data.append(w.readframes(w.getnframes()))
+            except Exception as e:
+                logger.warning(f"Failed to parse WAV part, skipping header: {e}")
+                # 回退：尝试跳过 44 字节头
+                if len(part) > 44:
+                    all_data.append(part[44:])
 
-        combined_data = b"".join(data_parts)
+        combined_data = b"".join(all_data)
 
-        # 更新 WAV 头中的文件大小字段
-        header = bytearray(header)
-        file_size = len(combined_data) + 36
-        header[4:8] = file_size.to_bytes(4, "little")
-        data_size = len(combined_data)
-        header[40:44] = data_size.to_bytes(4, "little")
+        # 写入新的 WAV 文件
+        output = io.BytesIO()
+        with wave.open(output, "wb") as out_wav:
+            out_wav.setparams(params)
+            out_wav.writeframes(combined_data)
 
-        return bytes(header) + combined_data
+        return output.getvalue()
 
     def get_voices(self) -> list[dict]:
         """获取可用音色列表."""

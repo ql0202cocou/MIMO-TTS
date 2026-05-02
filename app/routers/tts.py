@@ -51,7 +51,7 @@ async def speak_get(
     try:
         logger.info(f"GET /speak: text={decoded_text[:50]}..., speed={speed}, voice={voice}, style={style}")
 
-        audio_data = tts_service.synthesize_long_text(
+        audio_data = await tts_service.synthesize_long_text(
             text=decoded_text,
             voice=voice,
             style_hint=style,
@@ -81,7 +81,7 @@ async def speak_post(request: TTSRequest):
             f"speed={request.speed}, voice={request.voice}, style={request.style}"
         )
 
-        audio_data = tts_service.synthesize_long_text(
+        audio_data = await tts_service.synthesize_long_text(
             text=request.text,
             voice=request.voice,
             style_hint=request.style,

@@ -54,7 +54,17 @@ class Settings(BaseSettings):
     SERVER_PORT: int = Field(default=9880, description="服务监听端口")
 
     # CORS configuration
-    CORS_ORIGINS: str = Field(default="*", description="CORS 允许的来源，逗号分隔")
+    CORS_ORIGINS: str = Field(default="http://localhost:9880", description="CORS 允许的来源，逗号分隔")
+
+    # Authentication
+    API_KEY: str = Field(default="", description="服务 API 密钥（留空则不启用认证）")
+    API_KEY_HEADER: str = Field(default="X-API-Key", description="API 密钥请求头名称")
+
+    # Rate limiting
+    RATE_LIMIT: str = Field(default="60/minute", description="速率限制（如 60/minute, 100/hour）")
+
+    # Request size limit (bytes)
+    MAX_REQUEST_SIZE: int = Field(default=1048576, description="最大请求体大小（字节），默认 1MB")
 
     # Log level
     LOG_LEVEL: str = Field(default="INFO", description="日志级别")

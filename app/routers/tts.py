@@ -1,10 +1,13 @@
 """TTS route handlers for Legado HTTP TTS engine integration."""
 
 import logging
+import re
 from urllib.parse import unquote
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request, Depends
 from fastapi.responses import Response
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.config import settings, VERSION, SPEED_DEFAULT, SPEED_MIN, SPEED_MAX, CONTENT_TYPE_MAP
 from app.models.schemas import TTSRequest, VoiceInfo, HealthResponse
@@ -14,6 +17,45 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["tts"])
 
+# Rate limiter instance
+limiter = Limiter(key_func=get_remote_address)
+
+
+def verify_api_key(request: Request) -> None:
+    """Verify API key if configured."""
+    if not settings.API_KEY:
+        return  # No authentication required
+    
+    api_key = request.headers.get(settings.API_KEY_HEADER)
+    if not api_key or api_key != settings.API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+def sanitize_text(text: str) -> str:
+    """Sanitize input text to prevent prompt injection."""
+    # Remove control characters except newlines and tabs
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+    # Limit consecutive whitespace
+    text = re.sub(r'\s{10,}', ' ', text)
+    # Limit total length
+    return text.strip()[:10000]
+
+
+def sanitize_style(style: str) -> str:
+    """Sanitize style parameter."""
+    # Remove control characters
+    style = re.sub(r'[\x00-\x1f\x7f]', '', style)
+    # Only allow common style characters
+    style = re.sub(r'[^\w\s，、。！？：；""''（）\-\+]', '', style)
+    return style.strip()[:200]  # Limit length
+
+
+def sanitize_voice(voice: str) -> str:
+    """Sanitize voice parameter."""
+    # Remove control characters and special chars
+    voice = re.sub(r'[^\w\-]', '', voice)
+    return voice.strip()[:50]
+
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
@@ -21,13 +63,13 @@ async def health_check():
     return HealthResponse(
         status="ok",
         version=VERSION,
-        api_configured=tts_service.is_configured(),
     )
 
 
 @router.get("/voices", response_model=list[VoiceInfo])
-async def get_voices():
+async def get_voices(request: Request):
     """获取可用音色列表."""
+    verify_api_key(request)
     voices = tts_service.get_voices()
     return [VoiceInfo(**v) for v in voices]
 
@@ -38,7 +80,7 @@ async def _handle_speak(text: str, speed: int, voice: str | None, style: str | N
         raise HTTPException(status_code=400, detail="文本不能为空")
 
     try:
-        logger.info(f"/speak: text={text[:50]}..., speed={speed}, voice={voice}, style={style}")
+        logger.info(f"/speak: text_length={len(text)}, speed={speed}, voice={voice}")
 
         audio_data = await tts_service.synthesize_long_text(
             text=text,
@@ -53,22 +95,46 @@ async def _handle_speak(text: str, speed: int, voice: str | None, style: str | N
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"TTS synthesis failed: {e}", exc_info=True)
+        logger.error(f"TTS synthesis failed: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="语音合成失败，请稍后重试")
 
 
 @router.get("/speak")
+@limiter.limit(settings.RATE_LIMIT)
 async def speak_get(
+    request: Request,
     text: str = Query(..., description="要朗读的文本（URL 编码）"),
     speed: int = Query(default=SPEED_DEFAULT, ge=SPEED_MIN, le=SPEED_MAX, description="朗读速度"),
     voice: str = Query(default=None, description="音色选择"),
     style: str = Query(default=None, description="风格标签"),
 ):
     """GET 方式朗读文本，返回音频二进制数据."""
-    return await _handle_speak(unquote(text), speed, voice, style)
+    verify_api_key(request)
+    sanitized_text = sanitize_text(unquote(text))
+    sanitized_voice = sanitize_voice(voice) if voice else None
+    sanitized_style = sanitize_style(style) if style else None
+    return await _handle_speak(sanitized_text, speed, sanitized_voice, sanitized_style)
 
 
 @router.post("/speak")
-async def speak_post(request: TTSRequest):
+@limiter.limit(settings.RATE_LIMIT)
+async def speak_post(request: Request):
     """POST 方式朗读文本，返回音频二进制数据."""
-    return await _handle_speak(request.text, request.speed, request.voice, request.style)
+    verify_api_key(request)
+    
+    # Parse request body manually for rate limiting
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid JSON")
+    
+    # Validate with Pydantic
+    try:
+        tts_request = TTSRequest(**body)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    
+    sanitized_text = sanitize_text(tts_request.text)
+    sanitized_voice = sanitize_voice(tts_request.voice) if tts_request.voice else None
+    sanitized_style = sanitize_style(tts_request.style) if tts_request.style else None
+    return await _handle_speak(sanitized_text, tts_request.speed, sanitized_voice, sanitized_style)

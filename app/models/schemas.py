@@ -9,12 +9,12 @@ from app.config import VERSION, SPEED_DEFAULT, SPEED_MIN, SPEED_MAX
 class TTSRequest(BaseModel):
     """TTS request data model."""
 
-    text: str = Field(..., description="要朗读的文本内容")
+    text: str = Field(..., min_length=1, max_length=10000, description="要朗读的文本内容")
     speed: Optional[int] = Field(
         default=SPEED_DEFAULT, ge=SPEED_MIN, le=SPEED_MAX, description="朗读速度"
     )
-    voice: Optional[str] = Field(default=None, description="音色选择（晓晓/云阳/Chloe 等）")
-    style: Optional[str] = Field(default=None, description="风格标签（如'温柔'、'开心'）")
+    voice: Optional[str] = Field(default=None, max_length=50, description="音色选择（晓晓/云阳/Chloe 等）")
+    style: Optional[str] = Field(default=None, max_length=200, description="风格标签（如'温柔'、'开心'）")
 
 
 class VoiceInfo(BaseModel):
@@ -31,4 +31,3 @@ class HealthResponse(BaseModel):
 
     status: str = Field(default="ok", description="服务状态")
     version: str = Field(default=VERSION, description="MIMO-TTS 版本")
-    api_configured: bool = Field(default=False, description="API Key 是否已配置")

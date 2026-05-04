@@ -25,5 +25,5 @@ USER appuser
 # Expose port
 EXPOSE 9880
 
-# Start service
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9880"]
+# Start service with request size limit
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9880", "--limit-max-request-size", "1048576"]

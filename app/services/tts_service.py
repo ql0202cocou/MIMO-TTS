@@ -94,7 +94,7 @@ class TTSService:
         if voice is None:
             return self.default_voice
         if voice not in VALID_VOICE_IDS:
-            logger.warning(f"Invalid voice '{voice}', falling back to default '{self.default_voice}'")
+            logger.warning(f"Invalid voice requested, falling back to default")
             return self.default_voice
         return voice
 
@@ -174,15 +174,14 @@ class TTSService:
                 last_exception = e
 
                 if not _is_retryable(e):
-                    logger.error(f"Non-retryable API error: {e}")
+                    logger.error(f"Non-retryable API error: {type(e).__name__}")
                     raise
 
                 if attempt < MAX_RETRIES:
                     wait = RETRY_DELAY * attempt
-                    logger.warning(f"API call failed (attempt {attempt}/{MAX_RETRIES}): {e}, retrying in {wait}s...")
-                    await asyncio.sleep(wait)
+                    logger.warning(f"API call failed (attempt {attempt}/{MAX_RETRIES}): {type(e).__name__}, retrying in {wait}s...")
                 else:
-                    logger.error(f"API call failed after {MAX_RETRIES} attempts: {e}")
+                    logger.error(f"API call failed after {MAX_RETRIES} attempts: {type(e).__name__}")
 
         raise RuntimeError(f"TTS synthesis failed after {MAX_RETRIES} retries") from last_exception
 
@@ -325,7 +324,7 @@ class TTSService:
             except RuntimeError:
                 raise
             except Exception as e:
-                logger.warning(f"Failed to parse WAV part {idx}: {e}")
+                logger.warning(f"Failed to parse WAV part {idx}: {type(e).__name__}")
                 raise RuntimeError(f"WAV part {idx} is corrupted and cannot be processed") from e
 
         combined_data = b"".join(all_data)

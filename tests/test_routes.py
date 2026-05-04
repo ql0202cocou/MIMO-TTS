@@ -24,7 +24,7 @@ async def test_health_check(client):
         data = resp.json()
         assert data["status"] == "ok"
         assert data["version"] == VERSION
-        assert "api_configured" in data
+        assert "api_configured" not in data
 
 
 @pytest.mark.anyio
@@ -111,3 +111,14 @@ async def test_speak_post_500_no_detail_leak(client):
             assert "sk-xxx" not in detail
             assert "secret" not in detail
             assert "语音合成失败" in detail
+
+
+@pytest.mark.anyio
+async def test_security_headers(client):
+    """Verify security headers are present."""
+    async with client as c:
+        resp = await c.get("/health")
+        assert resp.headers.get("X-Content-Type-Options") == "nosniff"
+        assert resp.headers.get("X-Frame-Options") == "DENY"
+        assert resp.headers.get("X-XSS-Protection") == "1; mode=block"
+        assert resp.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"

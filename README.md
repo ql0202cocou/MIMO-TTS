@@ -164,6 +164,12 @@ curl "http://localhost:9880/speak?text=你好世界" --output test.wav
 | OUTPUT_AUDIO_FORMAT | 输出音频格式 (wav/mp3) | wav |
 | SERVER_HOST | 服务监听地址 | 0.0.0.0 |
 | SERVER_PORT | 服务监听端口 | 9880 |
+| CORS_ORIGINS | CORS 允许的来源（逗号分隔） | http://localhost:9880 |
+| API_KEY | 服务 API 密钥（留空不启用认证） | - |
+| API_KEY_HEADER | API 密钥请求头名称 | X-API-Key |
+| RATE_LIMIT | 速率限制 | 60/minute |
+| MAX_REQUEST_SIZE | 最大请求体大小（字节） | 1048576 |
+| LOG_LEVEL | 日志级别 | INFO |
 
 ## 本地开发
 
@@ -188,6 +194,88 @@ uvicorn app.main:app --host 0.0.0.0 --port 9880 --reload
 3. **音频格式**：API 返回 Base64 编码的 WAV 音频，服务端解码后返回原始二进制数据给 Legado
 4. **文本长度限制**：单次请求文本建议 ≤ 5000 字符，超长文本会自动分段合成后拼接
 5. **计费**：当前 MIMO-TTS v2.5 限时免费
+
+## 安全配置
+
+### 认证
+
+设置 `API_KEY` 环境变量启用认证。客户端需要在请求头中包含：
+
+```
+X-API-Key: your_api_key_here
+```
+
+### 速率限制
+
+默认限制 60 次/分钟。可通过 `RATE_LIMIT` 配置，支持的格式：
+- `60/minute`
+- `100/hour`
+- `1000/day`
+
+### CORS
+
+生产环境请将 `CORS_ORIGINS` 设置为具体的域名，不要使用 `*`：
+
+```env
+CORS_ORIGINS=https://your-domain.com
+```
+
+## 生产环境部署
+
+### HTTPS 配置
+
+本服务默认监听 HTTP。**生产环境必须使用反向代理（如 Nginx）提供 HTTPS**。
+
+以下是一个 Nginx 配置示例：
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name tts.your-domain.com;
+
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    # 安全头
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    # 请求大小限制
+    client_max_body_size 1M;
+
+    location / {
+        proxy_pass http://127.0.0.1:9880;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # 超时设置
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 120s;
+    }
+}
+
+# HTTP 重定向到 HTTPS
+server {
+    listen 80;
+    server_name tts.your-domain.com;
+    return 301 https://$server_name$request_uri;
+}
+```
+
+### Legado 配置（HTTPS）
+
+如果使用 HTTPS，Legado 配置中的 URL 需要改为：
+
+```
+https://tts.your-domain.com/speak?text={{java.encodeURI(speakText)}}&speed={{speakSpeed}}
+```
 
 ## 许可证
 

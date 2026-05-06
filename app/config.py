@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     # Request size limit (bytes)
     MAX_REQUEST_SIZE: int = Field(default=1048576, description="最大请求体大小（字节），默认 1MB")
 
+    # Proxy trust settings
+    TRUST_PROXY: bool = Field(default=False, description="是否信任反向代理的 X-Forwarded-For 头")
+
+    # HTTPS enforcement
+    FORCE_HTTPS: bool = Field(default=False, description="是否强制 HTTPS 重定向")
+
     # Log level
     LOG_LEVEL: str = Field(default="INFO", description="日志级别")
 

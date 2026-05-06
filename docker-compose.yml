@@ -20,7 +20,23 @@ services:
       - API_KEY=${API_KEY:-}
       - RATE_LIMIT=${RATE_LIMIT:-60/minute}
       - MAX_REQUEST_SIZE=${MAX_REQUEST_SIZE:-1048576}
+      - TRUST_PROXY=${TRUST_PROXY:-false}
+      - FORCE_HTTPS=${FORCE_HTTPS:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    # Security hardening
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9880/health"]
       interval: 30s

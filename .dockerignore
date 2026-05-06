@@ -1,0 +1,41 @@
+# Git
+.git
+.gitignore
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+dist
+build
+.eggs
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Documentation
+*.md
+LICENSE
+
+# Temporary files
+*.tmp
+*.bak

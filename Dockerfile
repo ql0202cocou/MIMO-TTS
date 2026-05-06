@@ -20,10 +20,15 @@ COPY app/ ./app/
 # Set ownership
 RUN chown -R appuser:appuser /app
 
+# Switch to non-root user
 USER appuser
 
 # Expose port
 EXPOSE 9880
+
+# Security labels
+LABEL maintainer="MIMO-TTS Team"
+LABEL security.capabilities="NET_BIND_SERVICE"
 
 # Start service with request size limit
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9880", "--limit-max-request-size", "1048576"]

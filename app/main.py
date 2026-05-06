@@ -6,12 +6,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from app.config import settings, VERSION, CONTENT_TYPE_MAP
 from app.routers.tts import router as tts_router
+from app.routers.tts import get_real_client_ip
 
 # Configure logging
 logging.basicConfig(
@@ -21,8 +22,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Rate limiter
-limiter = Limiter(key_func=get_remote_address, default_limits=[settings.RATE_LIMIT])
+# Rate limiter with real IP detection
+limiter = Limiter(key_func=get_real_client_ip, default_limits=[settings.RATE_LIMIT])
 
 
 @asynccontextmanager
@@ -61,6 +62,12 @@ async def lifespan(app: FastAPI):
             "Please set specific origins in production environment."
         )
 
+    if settings.TRUST_PROXY:
+        logger.info("Trust proxy mode enabled. Using X-Forwarded-For for client IP.")
+
+    if settings.FORCE_HTTPS:
+        logger.info("HTTPS enforcement enabled. HTTP requests will be redirected.")
+
     logger.info(f"Server listening on {settings.SERVER_HOST}:{settings.SERVER_PORT}")
     logger.info("=" * 60)
 
@@ -96,6 +103,18 @@ app.add_middleware(
 
 
 @app.middleware("http")
+async def https_redirect_middleware(request: Request, call_next):
+    """Redirect HTTP to HTTPS if FORCE_HTTPS is enabled."""
+    if settings.FORCE_HTTPS:
+        # Check if request came via proxy with X-Forwarded-Proto
+        proto = request.headers.get("X-Forwarded-Proto", "http")
+        if proto == "http" and request.url.path != "/health":
+            https_url = request.url.replace(scheme="https")
+            return RedirectResponse(url=str(https_url), status_code=301)
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def security_headers_middleware(request: Request, call_next):
     """Add security headers to all responses."""
     response: Response = await call_next(request)
@@ -104,6 +123,7 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
 

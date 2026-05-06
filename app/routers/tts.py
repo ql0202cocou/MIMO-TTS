@@ -1,5 +1,7 @@
 """TTS route handlers for Legado HTTP TTS engine integration."""
 
+import hashlib
+import hmac
 import logging
 import re
 from urllib.parse import unquote
@@ -17,26 +19,58 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["tts"])
 
-# Rate limiter instance
-limiter = Limiter(key_func=get_remote_address)
+
+def get_real_client_ip(request: Request) -> str:
+    """Get real client IP, respecting X-Forwarded-For behind reverse proxy."""
+    if settings.TRUST_PROXY:
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            return forwarded_for.split(",")[0].strip()
+        real_ip = request.headers.get("X-Real-IP")
+        if real_ip:
+            return real_ip.strip()
+    return request.client.host if request.client else "unknown"
+
+
+# Rate limiter instance with real IP detection
+limiter = Limiter(key_func=get_real_client_ip)
 
 
 def verify_api_key(request: Request) -> None:
-    """Verify API key if configured."""
+    """Verify API key if configured using constant-time comparison."""
     if not settings.API_KEY:
         return  # No authentication required
     
     api_key = request.headers.get(settings.API_KEY_HEADER)
-    if not api_key or api_key != settings.API_KEY:
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    
+    # Use constant-time comparison to prevent timing attacks
+    if not hmac.compare_digest(api_key, settings.API_KEY):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 def sanitize_text(text: str) -> str:
-    """Sanitize input text to prevent prompt injection."""
+    """Sanitize input text to prevent prompt injection and other attacks."""
     # Remove control characters except newlines and tabs
     text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+    
+    # Remove potential prompt injection patterns
+    # Block common injection markers used in LLM prompts
+    injection_patterns = [
+        r'(?i)\b(system|assistant|user)\s*:',  # Role markers
+        r'(?i)\b(ignore|forget|disregard)\s+(previous|above|all)\b',  # Instruction override
+        r'(?i)\b(you are now|act as|pretend to be|roleplay as)\b',  # Role hijacking
+        r'(?i)\b(instruct|prompt|command)\s*:',  # Instruction markers
+        r'```\s*(system|assistant|user)',  # Code block role injection
+        r'<\|(system|assistant|user)\|>',  # Special token injection
+    ]
+    for pattern in injection_patterns:
+        text = re.sub(pattern, '', text)
+    
     # Limit consecutive whitespace
     text = re.sub(r'\s{10,}', ' ', text)
+    
     # Limit total length
     return text.strip()[:10000]
 

@@ -1,6 +1,8 @@
-# MIMO-TTS Legado Bridge（本项目还早早期构建阶段，大家看看就好）
+# MIMO-TTS Legado Bridge
 
 将[开源阅读（Legado）](https://github.com/gedoor/legado)的自定义 TTS 朗读引擎请求转发到小米 [MIMO-TTS v2.5](https://platform.xiaomimimo.com/docs/zh-CN/usage-guide/speech-synthesis-v2.5) 的 Chat Completions API，提供高质量、自然的语音朗读体验。
+
+> **注意**：本项目目前处于早期构建阶段。
 
 ## 系统架构
 
@@ -169,6 +171,8 @@ curl "http://localhost:9880/speak?text=你好世界" --output test.wav
 | API_KEY_HEADER | API 密钥请求头名称 | X-API-Key |
 | RATE_LIMIT | 速率限制 | 60/minute |
 | MAX_REQUEST_SIZE | 最大请求体大小（字节） | 1048576 |
+| TRUST_PROXY | 是否信任反向代理的 X-Forwarded-For 头 | false |
+| FORCE_HTTPS | 是否强制 HTTPS 重定向 | false |
 | LOG_LEVEL | 日志级别 | INFO |
 
 ## 本地开发
@@ -276,6 +280,14 @@ server {
 ```
 https://tts.your-domain.com/speak?text={{java.encodeURI(speakText)}}&speed={{speakSpeed}}
 ```
+
+## 技术栈
+
+- **后端框架**：FastAPI
+- **TTS API**：小米 MIMO-TTS v2.5 Chat Completions API
+- **容器化**：Docker & Docker Compose
+- **依赖管理**：pip (requirements.txt)
+- **配置管理**：pydantic-settings & python-dotenv
 
 ## 许可证
 

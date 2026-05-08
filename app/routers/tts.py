@@ -1,6 +1,5 @@
 """TTS route handlers for Legado HTTP TTS engine integration."""
 
-import hashlib
 import hmac
 import logging
 import re
@@ -8,32 +7,13 @@ from urllib.parse import unquote
 
 from fastapi import APIRouter, HTTPException, Query, Request, Depends
 from fastapi.responses import Response
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-
-from app.config import settings, VERSION, SPEED_DEFAULT, SPEED_MIN, SPEED_MAX, CONTENT_TYPE_MAP
+from app.config import settings, VERSION, SPEED_DEFAULT, SPEED_MIN, SPEED_MAX, CONTENT_TYPE_MAP, limiter
 from app.models.schemas import TTSRequest, VoiceInfo, HealthResponse
 from app.services.tts_service import tts_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["tts"])
-
-
-def get_real_client_ip(request: Request) -> str:
-    """Get real client IP, respecting X-Forwarded-For behind reverse proxy."""
-    if settings.TRUST_PROXY:
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            return forwarded_for.split(",")[0].strip()
-        real_ip = request.headers.get("X-Real-IP")
-        if real_ip:
-            return real_ip.strip()
-    return request.client.host if request.client else "unknown"
-
-
-# Rate limiter instance with real IP detection
-limiter = Limiter(key_func=get_real_client_ip)
 
 
 def verify_api_key(request: Request) -> None:
@@ -54,18 +34,20 @@ def sanitize_text(text: str) -> str:
     """Sanitize input text to prevent prompt injection and other attacks."""
     # Remove control characters except newlines and tabs
     text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
-    
+
     # Remove potential prompt injection patterns
     # Block common injection markers used in LLM prompts
     injection_patterns = [
-        r'(?i)\b(system|assistant|user)\s*:',  # Role markers
-        r'(?i)\b(ignore|forget|disregard)\s+(previous|above|all)\b',  # Instruction override
-        r'(?i)\b(you are now|act as|pretend to be|roleplay as)\b',  # Role hijacking
-        r'(?i)\b(instruct|prompt|command)\s*:',  # Instruction markers
-        r'```\s*(system|assistant|user)',  # Code block role injection
-        r'<\|(system|assistant|user)\|>',  # Special token injection
+        (r'(?i)\b(system|assistant|user)\s*:', "role_markers"),
+        (r'(?i)\b(ignore|forget|disregard)\s+(previous|above|all)\b', "instruction_override"),
+        (r'(?i)\b(you are now|act as|pretend to be|roleplay as)\b', "role_hijacking"),
+        (r'(?i)\b(instruct|prompt|command)\s*:', "instruction_markers"),
+        (r'```\s*(system|assistant|user)', "code_block_injection"),
+        (r'<\|(system|assistant|user)\|>', "special_token_injection"),
     ]
-    for pattern in injection_patterns:
+    for pattern, pattern_name in injection_patterns:
+        if re.search(pattern, text):
+            logger.warning(f"Prompt injection detected: pattern={pattern_name}, text_preview={text[:100]!r}")
         text = re.sub(pattern, '', text)
     
     # Limit consecutive whitespace
@@ -101,9 +83,8 @@ async def health_check():
 
 
 @router.get("/voices", response_model=list[VoiceInfo])
-async def get_voices(request: Request):
+async def get_voices(request: Request, api_key: None = Depends(verify_api_key)):
     """获取可用音色列表."""
-    verify_api_key(request)
     voices = tts_service.get_voices()
     return [VoiceInfo(**v) for v in voices]
 
@@ -141,9 +122,9 @@ async def speak_get(
     speed: int = Query(default=SPEED_DEFAULT, ge=SPEED_MIN, le=SPEED_MAX, description="朗读速度"),
     voice: str = Query(default=None, description="音色选择"),
     style: str = Query(default=None, description="风格标签"),
+    api_key: None = Depends(verify_api_key),
 ):
     """GET 方式朗读文本，返回音频二进制数据."""
-    verify_api_key(request)
     sanitized_text = sanitize_text(unquote(text))
     sanitized_voice = sanitize_voice(voice) if voice else None
     sanitized_style = sanitize_style(style) if style else None
@@ -152,10 +133,9 @@ async def speak_get(
 
 @router.post("/speak")
 @limiter.limit(settings.RATE_LIMIT)
-async def speak_post(request: Request):
+async def speak_post(request: Request, api_key: None = Depends(verify_api_key)):
     """POST 方式朗读文本，返回音频二进制数据."""
-    verify_api_key(request)
-    
+
     # Parse request body manually for rate limiting
     try:
         body = await request.json()

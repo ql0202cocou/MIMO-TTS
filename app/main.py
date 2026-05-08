@@ -7,12 +7,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from app.config import settings, VERSION, CONTENT_TYPE_MAP
+from app.config import settings, VERSION, CONTENT_TYPE_MAP, limiter
 from app.routers.tts import router as tts_router
-from app.routers.tts import get_real_client_ip
 
 # Configure logging
 logging.basicConfig(
@@ -22,14 +21,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Rate limiter with real IP detection
-limiter = Limiter(key_func=get_real_client_ip, default_limits=[settings.RATE_LIMIT])
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan context manager (startup + shutdown)."""
-    from app.services.tts_service import tts_service
 
     # Startup
     logger.info("=" * 60)
@@ -75,7 +70,8 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("MIMO-TTS Legado Bridge shutting down...")
-    await tts_service.close()
+    from app.services.tts_service import get_tts_service
+    await get_tts_service().close()
     logger.info("Shutdown complete.")
 
 

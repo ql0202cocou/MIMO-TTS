@@ -1,6 +1,6 @@
 services:
   mimo-tts-legado:
-    build: .
+    build: ..
     container_name: mimo-tts-legado
     restart: unless-stopped
     ports:

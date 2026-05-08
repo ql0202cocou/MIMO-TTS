@@ -25,7 +25,7 @@ git clone <repo-url>
 cd MIMO-TTS
 
 # 配置环境变量
-cp .env.example .env
+cp examples/env.template .env
 # 编辑 .env 填入你的 MIMO API Key
 ```
 
@@ -39,13 +39,13 @@ MIMO_TTS_API_KEY=your_actual_api_key_here
 
 ```bash
 # 构建并启动
-docker-compose up -d
+docker compose -f examples/docker-compose.yml up -d
 
 # 查看日志
-docker-compose logs -f
+docker compose -f examples/docker-compose.yml logs -f
 
 # 停止服务
-docker-compose down
+docker compose -f examples/docker-compose.yml down
 ```
 
 ### 3. 验证服务
@@ -182,7 +182,7 @@ curl "http://localhost:9880/speak?text=你好世界" --output test.wav
 pip install -r requirements.txt
 
 # 配置环境变量
-cp .env.example .env
+cp examples/env.template .env
 # 编辑 .env
 
 # 启动开发服务器

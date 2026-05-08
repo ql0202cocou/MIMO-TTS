@@ -346,5 +346,23 @@ class TTSService:
         return bool(settings.MIMO_TTS_API_KEY)
 
 
-# Global service instance
-tts_service = TTSService()
+# Global service instance (lazy initialization)
+_tts_service: TTSService | None = None
+
+
+def get_tts_service() -> TTSService:
+    """Get or create the global TTSService instance."""
+    global _tts_service
+    if _tts_service is None:
+        _tts_service = TTSService()
+    return _tts_service
+
+
+class _TtsServiceProxy:
+    """Proxy that lazily initializes TTSService on first attribute access."""
+
+    def __getattr__(self, name: str):
+        return getattr(get_tts_service(), name)
+
+
+tts_service = _TtsServiceProxy()

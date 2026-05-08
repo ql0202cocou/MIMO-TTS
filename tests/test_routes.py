@@ -6,7 +6,7 @@ from unittest.mock import patch, AsyncMock
 from httpx import AsyncClient, ASGITransport
 
 from app.main import app
-from app.config import VERSION
+from app.config import VERSION, limiter
 
 
 @pytest.fixture
@@ -146,3 +146,80 @@ async def test_prompt_injection_sanitization(client):
                 resp = await c.post("/speak", json={"text": text})
                 # Should succeed but with sanitized text
                 assert resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_auth_missing_key_rejected(client):
+    """Verify requests without API key are rejected when API_KEY is set."""
+    with patch("app.routers.tts.settings.API_KEY", "test-secret-key"):
+        async with client as c:
+            resp = await c.get("/voices")
+            assert resp.status_code == 401
+            assert "API key" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_auth_wrong_key_rejected(client):
+    """Verify requests with wrong API key are rejected."""
+    with patch("app.routers.tts.settings.API_KEY", "test-secret-key"):
+        async with client as c:
+            resp = await c.get("/voices", headers={"X-API-Key": "wrong-key"})
+            assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_auth_correct_key_accepted(client):
+    """Verify requests with correct API key are accepted."""
+    with patch("app.routers.tts.settings.API_KEY", "test-secret-key"):
+        async with client as c:
+            resp = await c.get("/voices", headers={"X-API-Key": "test-secret-key"})
+            assert resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_auth_not_required_when_empty(client):
+    """Verify requests succeed without key when API_KEY is empty."""
+    with patch("app.routers.tts.settings.API_KEY", ""):
+        async with client as c:
+            resp = await c.get("/voices")
+            assert resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_auth_speak_endpoint(client):
+    """Verify /speak also requires auth when API_KEY is set."""
+    with patch("app.routers.tts.settings.API_KEY", "test-secret-key"):
+        async with client as c:
+            resp = await c.get("/speak", params={"text": "hello"})
+            assert resp.status_code == 401
+
+            resp = await c.get("/speak", params={"text": "hello"}, headers={"X-API-Key": "test-secret-key"})
+            assert resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_rate_limit_exceeded(client):
+    """Verify rate limiting blocks excessive requests."""
+    mock_audio = b"RIFF" + b"\x00" * 40
+
+    # Temporarily set a very low rate limit
+    original_limits = limiter.default_limits
+    limiter.default_limits = ["2/minute"]
+    try:
+        with patch(
+            "app.services.tts_service.TTSService.synthesize_long_text",
+            new_callable=AsyncMock,
+            return_value=mock_audio,
+        ):
+            async with client as c:
+                # First two requests should succeed
+                resp1 = await c.get("/speak", params={"text": "hello"})
+                resp2 = await c.get("/speak", params={"text": "world"})
+                assert resp1.status_code == 200
+                assert resp2.status_code == 200
+
+                # Third request should be rate limited
+                resp3 = await c.get("/speak", params={"text": "again"})
+                assert resp3.status_code == 429
+    finally:
+        limiter.default_limits = original_limits

@@ -5,6 +5,9 @@ from typing import Literal
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from dotenv import load_dotenv
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from starlette.requests import Request as StarletteRequest
 
 load_dotenv(override=False)
 
@@ -79,3 +82,19 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def get_real_client_ip(request: StarletteRequest) -> str:
+    """Get real client IP, respecting X-Forwarded-For behind reverse proxy."""
+    if settings.TRUST_PROXY:
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            return forwarded_for.split(",")[0].strip()
+        real_ip = request.headers.get("X-Real-IP")
+        if real_ip:
+            return real_ip.strip()
+    return request.client.host if request.client else "unknown"
+
+
+# Shared rate limiter instance (used by both main.py and routers)
+limiter = Limiter(key_func=get_real_client_ip, default_limits=[settings.RATE_LIMIT])

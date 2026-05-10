@@ -1,16 +1,16 @@
-# MIMO-TTS Legado Bridge
+# MIMO-TTS Legado Bridge (Rust)
 
 将[开源阅读（Legado）](https://github.com/gedoor/legado)的自定义 TTS 朗读引擎请求转发到小米 [MIMO-TTS v2.5](https://platform.xiaomimimo.com/docs/zh-CN/usage-guide/speech-synthesis-v2.5) 的 Chat Completions API，提供高质量、自然的语音朗读体验。
 
-> **注意**：本项目目前处于早期构建阶段。
+使用 Rust 重写，内存占用更低，启动更快。
 
 ## 系统架构
 
 ```
 ┌─────────────────────────┐                  ┌─────────────────────────┐                  ┌─────────────────────────┐
 │                         │     --> HTTP     │                         │  Chat Completions  │                         │
-│  Legado (Android)       │     -->          │  Docker 中间件服务       │  --> API           │  小米 MIMO-TTS v2.5     │
-│  开源阅读 App            │     <--          │  (Debian 12)            │  <--               │  API                    │
+│  Legado (Android)       │     -->          │  Docker (Rust)          │  --> API           │  小米 MIMO-TTS v2.5     │
+│  开源阅读 App            │     <--          │  Debian 12              │  <--               │  API                    │
 │                         │  音频流(WAV)      │                         │  Base64 音频数据    │                         │
 └─────────────────────────┘                  └─────────────────────────┘                  └─────────────────────────┘
 ```
@@ -25,27 +25,30 @@ git clone <repo-url>
 cd MIMO-TTS
 
 # 配置环境变量
-cp examples/env.template .env
-# 编辑 .env 填入你的 MIMO API Key
+cp .env.example .env
+# 编辑 .env 填入你的配置
 ```
 
-编辑 `.env` 文件，至少填入 `MIMO_TTS_API_KEY`：
+编辑 `.env` 文件：
 
 ```env
-MIMO_TTS_API_KEY=your_actual_api_key_here
+API_BASE_URL=https://api.xiaomimimo.com/v1
+API_KEY=your_mimo_api_key_here
+USERNAME=your_username
+PASSWORD=your_password
 ```
 
 ### 2. 启动服务
 
 ```bash
 # 构建并启动
-docker compose -f examples/docker-compose.yml up -d
+docker compose up -d
 
 # 查看日志
-docker compose -f examples/docker-compose.yml logs -f
+docker compose logs -f
 
 # 停止服务
-docker compose -f examples/docker-compose.yml down
+docker compose down
 ```
 
 ### 3. 验证服务
@@ -55,21 +58,27 @@ docker compose -f examples/docker-compose.yml down
 curl http://localhost:9880/health
 
 # 查看可用音色
-curl http://localhost:9880/voices
+curl -u your_username:your_password http://localhost:9880/voices
 
 # 测试语音合成
-curl "http://localhost:9880/speak?text=你好世界" --output test.wav
+curl -u your_username:your_password "http://localhost:9880/speak?text=你好世界" --output test.wav
 ```
 
 ## Legado 配置指南
 
-### 步骤
+### 方法一：自动导入（推荐）
+
+1. 确保服务已启动
+2. 在手机浏览器访问 `http://服务器IP:9880/legado`
+3. 下载 JSON 文件
+4. 在 Legado 中导入朗读引擎配置
+5. 首次朗读时 Legado 会弹出登录框，输入 `USERNAME` 和 `PASSWORD` 即可
+
+### 方法二：手动配置
 
 1. 打开 Legado → 设置 → 朗读引擎 → 点击 "+" 添加 HTTP TTS 引擎
 
 2. 配置引擎信息：
-
-   **名称**：`MIMO-TTS`
 
    **推荐 GET 方式（更简单）**：
 
@@ -85,28 +94,17 @@ curl "http://localhost:9880/speak?text=你好世界" --output test.wav
    Content Type: audio/wav
    ```
 
-3. 可选：指定音色和风格
-
-   GET 方式：
-   ```
-   http://<服务器IP>:9880/speak?text={{java.encodeURI(speakText)}}&speed={{speakSpeed}}&voice=云阳&style=磁性
-   ```
-
-   POST 方式：
-   ```
-   http://<服务器IP>:9880/speak,{"method":"POST","headers":{"Content-Type":"application/json"},"body":"{\"text\":\"{{java.encodeURI(speakText)}}\",\"speed\":{{speakSpeed}},\"voice\":\"云阳\",\"style\":\"磁性\"}"}
-   ```
-
-4. 配置完成后点击测试按钮，验证是否能正常返回音频
+3. 配置完成后点击测试按钮，Legado 会提示输入用户名和密码
 
 ## API 端点
 
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/speak` | GET | 朗读文本，返回音频二进制数据 |
-| `/speak` | POST | 朗读文本，返回音频二进制数据 |
-| `/voices` | GET | 获取可用音色列表 |
-| `/health` | GET | 健康检查 |
+| 端点 | 方法 | 认证 | 说明 |
+|------|------|------|------|
+| `/speak` | GET | Basic Auth | 朗读文本，返回音频二进制数据 |
+| `/speak` | POST | Basic Auth | 朗读文本，返回音频二进制数据 |
+| `/voices` | GET | Basic Auth | 获取可用音色列表 |
+| `/legado` | GET | 无 | 获取 Legado 引擎导入配置 |
+| `/health` | GET | 无 | 健康检查 |
 
 ### `/speak` GET 参数
 
@@ -142,152 +140,41 @@ curl "http://localhost:9880/speak?text=你好世界" --output test.wav
 | Milo | Milo | 英文 | 男 |
 | Dean | Dean | 英文 | 男 |
 
-## 风格控制
-
-支持通过自然语言描述控制朗读风格，常见风格示例：
-
-- **基础情绪**：开心 / 悲伤 / 愤怒 / 惊讶 / 兴奋 / 平静
-- **整体语调**：温柔 / 冷淡 / 活泼 / 严肃 / 慵懒 / 调皮
-- **音色定位**：磁性 / 醇厚 / 清亮 / 空灵 / 甜美 / 沙哑
-- **角色腔调**：夹子音 / 大姐姐音 / 正太音 / 大叔音 / 台湾腔
-- **方言**：东北话 / 四川话 / 河南话 / 粤语
-
 ## 环境变量
 
-| 环境变量 | 说明 | 默认值 |
-|---------|------|--------|
-| MIMO_TTS_API_KEY | API 认证密钥（**必填**） | - |
-| MIMO_TTS_API_BASE_URL | MIMO-TTS API 基础地址 | https://api.xiaomimimo.com/v1 |
-| MIMO_TTS_MODEL | 模型名称 | mimo-v2.5-tts |
-| MIMO_TTS_DEFAULT_VOICE | 默认音色 | 晓晓 |
-| MIMO_TTS_DEFAULT_STYLE | 默认风格指令 | 温柔，语速适中 |
-| MIMO_TTS_TIMEOUT | 请求超时时间(秒) | 60 |
-| MIMO_TTS_MAX_TEXT_LENGTH | 单次最大文本长度 | 5000 |
-| OUTPUT_AUDIO_FORMAT | 输出音频格式 (wav/mp3) | wav |
-| SERVER_HOST | 服务监听地址 | 0.0.0.0 |
-| SERVER_PORT | 服务监听端口 | 9880 |
-| CORS_ORIGINS | CORS 允许的来源（逗号分隔） | http://localhost:9880 |
-| API_KEY | 服务 API 密钥（留空不启用认证） | - |
-| API_KEY_HEADER | API 密钥请求头名称 | X-API-Key |
-| RATE_LIMIT | 速率限制 | 60/minute |
-| MAX_REQUEST_SIZE | 最大请求体大小（字节） | 1048576 |
-| TRUST_PROXY | 是否信任反向代理的 X-Forwarded-For 头 | false |
-| FORCE_HTTPS | 是否强制 HTTPS 重定向 | false |
-| LOG_LEVEL | 日志级别 | INFO |
+| 环境变量 | 必填 | 说明 | 默认值 |
+|---------|------|------|--------|
+| API_BASE_URL | 是 | MIMO-TTS API 基础地址 | https://api.xiaomimimo.com/v1 |
+| API_KEY | 是 | MIMO-TTS API Key | - |
+| USERNAME | 是 | Basic Auth 用户名 | - |
+| PASSWORD | 是 | Basic Auth 密码 | - |
+| MODEL | 否 | 模型名称 | mimo-v2.5-tts |
+| DEFAULT_VOICE | 否 | 默认音色 | 晓晓 |
+| DEFAULT_STYLE | 否 | 默认风格指令 | 温柔，语速适中 |
+| TIMEOUT_SECS | 否 | 请求超时时间(秒) | 60 |
+| MAX_TEXT_LENGTH | 否 | 单次最大文本长度 | 5000 |
+| OUTPUT_FORMAT | 否 | 输出音频格式 (wav/mp3/pcm16) | wav |
+| RATE_LIMIT_PER_MINUTE | 否 | 速率限制 | 60 |
+| MAX_REQUEST_SIZE | 否 | 最大请求体大小（字节） | 1048576 |
+| LOG_LEVEL | 否 | 日志级别 | info |
 
-## 本地开发
+## 认证说明
 
-```bash
-# 安装依赖
-pip install -r requirements.txt
+本服务使用 **HTTP Basic Auth** 进行认证：
 
-# 配置环境变量
-cp examples/env.template .env
-# 编辑 .env
-
-# 启动开发服务器
-python -m app.main
-# 或者使用 uvicorn
-uvicorn app.main:app --host 0.0.0.0 --port 9880 --reload
-```
-
-## 注意事项
-
-1. **API 调用方式**：MIMO-TTS v2.5 使用 Chat Completions API（`/v1/chat/completions`），**不是**标准的 OpenAI TTS API（`/v1/audio/speech`）
-2. **消息格式**：合成文本必须放在 `role: assistant` 的 `content` 中，风格指令放在 `role: user` 的 `content` 中
-3. **音频格式**：API 返回 Base64 编码的 WAV 音频，服务端解码后返回原始二进制数据给 Legado
-4. **文本长度限制**：单次请求文本建议 ≤ 5000 字符，超长文本会自动分段合成后拼接
-5. **计费**：当前 MIMO-TTS v2.5 限时免费
-
-## 安全配置
-
-### 认证
-
-设置 `API_KEY` 环境变量启用认证。客户端需要在请求头中包含：
-
-```
-X-API-Key: your_api_key_here
-```
-
-### 速率限制
-
-默认限制 60 次/分钟。可通过 `RATE_LIMIT` 配置，支持的格式：
-- `60/minute`
-- `100/hour`
-- `1000/day`
-
-### CORS
-
-生产环境请将 `CORS_ORIGINS` 设置为具体的域名，不要使用 `*`：
-
-```env
-CORS_ORIGINS=https://your-domain.com
-```
-
-## 生产环境部署
-
-### HTTPS 配置
-
-本服务默认监听 HTTP。**生产环境必须使用反向代理（如 Nginx）提供 HTTPS**。
-
-以下是一个 Nginx 配置示例：
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name tts.your-domain.com;
-
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-
-    # 安全头
-    add_header X-Content-Type-Options nosniff always;
-    add_header X-Frame-Options DENY always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header Referrer-Policy strict-origin-when-cross-origin always;
-
-    # 请求大小限制
-    client_max_body_size 1M;
-
-    location / {
-        proxy_pass http://127.0.0.1:9880;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # 超时设置
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 120s;
-    }
-}
-
-# HTTP 重定向到 HTTPS
-server {
-    listen 80;
-    server_name tts.your-domain.com;
-    return 301 https://$server_name$request_uri;
-}
-```
-
-### Legado 配置（HTTPS）
-
-如果使用 HTTPS，Legado 配置中的 URL 需要改为：
-
-```
-https://tts.your-domain.com/speak?text={{java.encodeURI(speakText)}}&speed={{speakSpeed}}
-```
+- `USERNAME` 和 `PASSWORD` 环境变量配置认证凭据
+- 如果任一为空，则禁用认证（不推荐用于生产环境）
+- Legado 原生支持 Basic Auth，首次请求时会自动弹出登录框
+- 使用常量时间比较防止时序攻击
 
 ## 技术栈
 
-- **后端框架**：FastAPI
-- **TTS API**：小米 MIMO-TTS v2.5 Chat Completions API
-- **容器化**：Docker & Docker Compose
-- **依赖管理**：pip (requirements.txt)
-- **配置管理**：pydantic-settings & python-dotenv
+- **语言**：Rust
+- **Web 框架**：axum
+- **异步运行时**：tokio
+- **HTTP 客户端**：reqwest
+- **音频处理**：hound（纯 Rust WAV 处理）
+- **容器化**：Docker & Docker Compose（多阶段构建）
 
 ## 许可证
 

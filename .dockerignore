@@ -7,25 +7,14 @@
 .env.*
 !.env.example
 
-# Python
-__pycache__
-*.pyc
-*.pyo
-*.egg-info
-dist
-build
-.eggs
+# Rust build artifacts (handled by multi-stage build)
+target/
 
 # IDE
 .vscode
 .idea
 *.swp
 *.swo
-
-# Testing
-.pytest_cache
-.coverage
-htmlcov
 
 # Docker
 Dockerfile
@@ -35,6 +24,18 @@ docker-compose.yml
 # Documentation
 *.md
 LICENSE
+
+# Examples
+examples/
+
+# Old Python files
+app/
+tests/
+requirements*.txt
+pytest.ini
+
+# Claude
+.claude/
 
 # Temporary files
 *.tmp

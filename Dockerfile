@@ -1,21 +1,38 @@
-FROM python:3.11-slim-bookworm
+# Stage 1: Build
+FROM rust:slim-bookworm AS builder
 
 WORKDIR /app
 
-# Install system dependencies (curl for healthcheck)
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends pkg-config && rm -rf /var/lib/apt/lists/*
+
+# Copy manifests for dependency caching
+COPY Cargo.toml Cargo.lock ./
+
+# Create dummy main.rs for dependency caching
+RUN mkdir src && echo "fn main() {}" > src/main.rs && cargo build --release && rm -rf src
+
+# Copy full source
+COPY src/ ./src/
+
+# Build release (touch to invalidate cache for source changes)
+RUN touch src/main.rs && cargo build --release
+
+# Stage 2: Runtime
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+# Install runtime dependencies
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
 RUN useradd -r -s /bin/false appuser
 
-# Install Python dependencies (production only)
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
-COPY app/ ./app/
+# Copy binary from builder
+COPY --from=builder /app/target/release/mimo-tts-legado /app/mimo-tts-legado
 
 # Set ownership
 RUN chown -R appuser:appuser /app
@@ -26,9 +43,9 @@ USER appuser
 # Expose port
 EXPOSE 9880
 
-# Security labels
-LABEL maintainer="MIMO-TTS Team"
-LABEL security.capabilities="NET_BIND_SERVICE"
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD curl -f http://localhost:9880/health || exit 1
 
-# Start service with request size limit
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9880", "--limit-max-request-size", "1048576"]
+# Start service
+ENTRYPOINT ["/app/mimo-tts-legado"]

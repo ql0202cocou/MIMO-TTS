@@ -1,10 +1,3 @@
-# MIMO-TTS Legado Bridge - Docker Compose 模板
-# 使用方法：
-#   1. 复制此文件到项目根目录: cp examples/docker-compose.yml .
-#   2. 复制环境变量模板: cp .env.example .env
-#   3. 编辑 .env 填入 API_KEY、USERNAME、PASSWORD
-#   4. 启动: docker compose up -d
-
 services:
   mimo-tts-legado:
     build: .
@@ -15,24 +8,23 @@ services:
     env_file:
       - .env
     environment:
-      # ===== 必填：MIMO-TTS API 配置 =====
+      # Required: MIMO-TTS API
       - API_BASE_URL=${API_BASE_URL:-https://api.xiaomimimo.com/v1}
       - API_KEY=${API_KEY}
-      # ===== 必填：Legado 登录凭据 =====
+      # Required: Legado Basic Auth
       - USERNAME=${USERNAME}
       - PASSWORD=${PASSWORD}
-      # ===== 可选：TTS 配置 =====
+      # Optional: TTS
       - MODEL=${MODEL:-mimo-v2.5-tts}
       - DEFAULT_VOICE=${DEFAULT_VOICE:-晓晓}
       - DEFAULT_STYLE=${DEFAULT_STYLE:-温柔，语速适中}
       - TIMEOUT_SECS=${TIMEOUT_SECS:-60}
       - MAX_TEXT_LENGTH=${MAX_TEXT_LENGTH:-5000}
       - OUTPUT_FORMAT=${OUTPUT_FORMAT:-wav}
-      # ===== 可选：服务器配置 =====
+      # Optional: Server
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}
       - MAX_REQUEST_SIZE=${MAX_REQUEST_SIZE:-1048576}
       - LOG_LEVEL=${LOG_LEVEL:-info}
-    # 安全加固
     read_only: true
     tmpfs:
       - /tmp:size=64M

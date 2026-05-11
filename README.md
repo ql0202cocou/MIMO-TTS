@@ -1,4 +1,4 @@
-# MIMO-TTS Legado (作者已无MIMO模型，归档)
+# MIMO-TTS Legado (作者已无MIMO模型，项目归档)
 
 将[开源阅读（Legado）](https://github.com/gedoor/legado)的自定义 TTS 朗读引擎请求转发到小米 [MIMO-TTS v2.5](https://platform.xiaomimimo.com/docs/zh-CN/usage-guide/speech-synthesis-v2.5) 的 Chat Completions API，提供高质量、自然的语音朗读体验。
 
